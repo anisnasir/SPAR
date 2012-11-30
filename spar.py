@@ -31,9 +31,12 @@ replica_id =0
 total_replicas_needed =0
 edge_count =0
 
+if len(sys.argv) != 2:
+	raise sys.exit("Number of arguments should be 2. Give a dataset with edges. \nExiting...")
+
 t1 = datetime.now()
 # Read the edges file and execute SPAR algorithm
-file_name = 'sample_data-testing.txt'
+file_name = str(sys.argv[1])
 with open(file_name, 'r') as f:
 	for line in f:
 		edge_exists = False
@@ -73,31 +76,31 @@ with open(file_name, 'r') as f:
 			#print "nodes[%d,%d] in servers[%d,%d]" % (user1.getId(), user2.getId(), user1.getMaster(), user2.getMaster())
 			if flag_col == 1:
 				print "--> Co-located!"
-	
+			move_flag=0
 			if flag_col == 0:
 				# Configuration 1
-				added_replicas1 += functions.config1(user1,user2)
+				added_replicas1 += functions.config1(user1, user2, col_fam_replica, col_fam_mse, move_flag)
 	
 				# Configuration 2
-				added_replicas2 += functions.config2_3(user1, user2, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, 'master1', 'master2')
+				added_replicas2 += functions.config2_3(user1, user2, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, 'master1', 'master2', total_replicas, move_flag)
 				
 				# Configuration 3
-				added_replicas3 += functions.config2_3(user2, user1, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, 'master2', 'master1')
+				added_replicas3 += functions.config2_3(user2, user1, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, 'master2', 'master1', total_replicas, move_flag)
 				
 				print "replicas(%d,%d,%d)" %(added_replicas1,added_replicas2,added_replicas3)
 				# Find minimum amount of added replicas
 				replicas = [added_replicas1,added_replicas2,added_replicas3]						
 				value =  replicas.index(min(replicas))
-	
+				move_flag=1
 				if(value == 0): # Configuration 1
 					total_replicas_needed+= replicas[0]
-					functions.make_move_config1(user1,user2,col_fam_replica,col_fam_mse)
+					functions.config1(user1, user2, col_fam_replica, col_fam_mse, move_flag)
 				elif(value == 1): # Configuration 2
 					total_replicas_needed+= replicas[1]
-					functions.make_move_config23(user1, user2, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, total_replicas)
+					functions.config2_3(user1, user2, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, 'master1', 'master2', total_replicas, move_flag)
 				else:		# Configuration 3
 					total_replicas_needed+= replicas[2]
-					functions.make_move_config23(user2, user1, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, total_replicas)
+					functions.config2_3(user2, user1, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, 'master2', 'master1', total_replicas, move_flag)
 
 t2 = datetime.now()
 

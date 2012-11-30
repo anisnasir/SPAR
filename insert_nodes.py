@@ -37,8 +37,11 @@ replica_id =0
 # Initialization of the table with masters in each server
 server_master_list = [0]*total_servers 
 
+if len(sys.argv) != 2:
+	raise sys.exit("Number of arguments should be 2. Give a dataset with nodes. \nExiting...")
+	
 # Read the nodes file and store the nodes 
-file_name = 'sample_nodes.txt'
+file_name = str(sys.argv[1])
 nodes_array=[]
 try:
 	with open(file_name, 'r') as f:
