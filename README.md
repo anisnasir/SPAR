@@ -10,3 +10,6 @@ sample_nodes.txt	Nodes from 0 to 20
 
 #Executing code
 Code can be executed using a SPAR file. Code require a keyspace OSN in Cassanra with column families that are defined in setup.py file
+
+#SPAR-reference paper
+http://conferences.sigcomm.org/sigcomm/2010/papers/sigcomm/p375.pdf
