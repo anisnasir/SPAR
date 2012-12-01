@@ -46,6 +46,7 @@ def get_a_Uuid():
 def getServer(col_fam, user):
 	try:
 		val = col_fam.get(str(user))
+		#print val['server']
 		return val['server']
 	except:
 		return -1
@@ -63,6 +64,21 @@ def get_server_rep(col_fam, id1):
 	except:
 		#print "Unexpected error:", sys.exc_info()[0]
 		return -1
+
+
+# Function: delete a node from replica table
+def delete_node_replica(col_fam_replica, id1, server):
+	try:
+		node_expr = create_index_expression('node_id',id1)
+		server_expr = create_index_expression('server',server)
+		node_clause = create_index_clause([node_expr,server_expr])
+		for key, value in  col_fam_replica.get_indexed_slices(node_clause):
+			col_fam_replica.remove(key)
+		return True	
+	except:
+		#print "Unexpected error:", sys.exc_info()[0]
+		return False
+
 
 #---------------------------------------------------------------------------------------#
 #----------Insert Functions-------------------------------------------------------------#
@@ -166,7 +182,6 @@ def config1(node1, node2, col_fam_replica, col_fam_mse, move_flag):
 			added_replicas+=1
 		else:
 			col_fam_replica.insert(get_a_Uuid(),{'node_id':node2.getId(),'server':master1})
-	
 	flag = True
 	for serv in array1:
 		if int(serv) == int(master2):
@@ -187,37 +202,47 @@ def config1(node1, node2, col_fam_replica, col_fam_mse, move_flag):
 # Function: Search for replicas of master-neighbours in the new server
 # If node1-master has masters-neighbours, check if their replicas exist in server2
 # If not --> Create replicas-neighbours in the server2
-def find_master_replicas(node_id, node_server1, node_server2, col_fam_mme, col_fam_replica, str_master1, str_master2, move_flag):
+def find_master_replicas(node_id, node_server1, node_server2, col_fam_mme, col_fam_mse, col_fam_replica, str_master1, str_master2, move_flag):
 	counter=0
 	added_replicas=0
+	#print "move_flag ",move_flag
 	try:
 	# Search in Master_Master_Edge if node1-master has masters-neigbours
 		master_expr = create_index_expression('%s'%str_master1, node_id)
 		server1_expr = create_index_expression('server', node_server1)
 		clause1 = create_index_clause([master_expr, server1_expr])			
 		for key1 , mms in  col_fam_mme.get_indexed_slices(clause1):
+			#print "found master master ",node_id," and ", mms['%s'%str_master2], " on server ",node_server1
 	# Search in Replica if slave-neighbours exist in the server2 --> keep a counter
 			slave_expr = create_index_expression('node_id', mms['%s'%str_master2])
 			server2_expr = create_index_expression('server', node_server2)
 			clause2 = create_index_clause([slave_expr, server2_expr])
 			for key2, server in col_fam_replica.get_indexed_slices(clause2):
-				counter+=1	
+				#print "found replica of ",mms['%s'%str_master2]," on server ",node_server2
+				counter+=1
+	
 			if counter==0:
 				#master-neighbour has NOT slave-replica in server2
 				if move_flag == 0:
 					added_replicas+=1
 				else:
-					col_fam_replica.insert(get_a_Uuid(),{'node_id':master2['%s'%str_master2],'server':node_server2})
-					insertMS(col_fam_mse,node_id,master2['%s'%str_master2],node_server2)
+					
+					#print node_id,"is moving from ",node_server1," to ",node_server2
+					col_fam_replica.insert(get_a_Uuid(),{'node_id':int(mms['%s'%str_master2]),'server':node_server2})
+					insertMS(col_fam_mse, int(node_id), int(mms['%s'%str_master2]), int(node_server2))
 			else:
 				counter=0
+				if move_flag:
+					col_fam_mme.remove(key1)
+					insertMS(col_fam_mse, int(node_id), int(mms['%s'%str_master2]), int(node_server2))
+					col_fam_replica.insert(get_a_Uuid(), {'node_id':node_id, 'server':node_server1})
 		return added_replicas
 	except:
 		print "Unexpected error in functions.find_master_replicas:", sys.exc_info()[0]
 		return 0
 
 # Function: Search for replicas of slave-neighbours in the new server
-def find_slave_replicas(node1, node2, node_id, node_server1, node_server2, col_fam_mme, col_fam_mse, col_fam_master, col_fam_replica, total_replicas, move_flag):
+def find_slave_replicas(node1, node2, node_id, node_server1, node_server2, col_fam_mme, col_fam_mse, col_fam_master, col_fam_replica, total_replicas, move_flag,total_servers):
 	counter = 0
 	added_replicas = 0
 	
@@ -232,7 +257,8 @@ def find_slave_replicas(node1, node2, node_id, node_server1, node_server2, col_f
 		server1_expr = create_index_expression('server',node_server1)
 		clause1 = create_index_clause([master_expr,server1_expr])
 		for key1, mss in col_fam_mse.get_indexed_slices(clause1):
-			slave_server = col_fam_master.get(str(mss['slave']))			
+			slave_server = col_fam_master.get(str(mss['slave']))
+			
 			if not slave_server == node_server2:
 				slave_expr = create_index_expression('node_id', mss['slave'])
 				server2_expr = create_index_expression('server', node_server2)					
@@ -247,35 +273,34 @@ def find_slave_replicas(node1, node2, node_id, node_server1, node_server2, col_f
 						insertMS(col_fam_mse, node_id, mss['slave'], node_server2)
 				else:
 					counter=0
+					if move_flag == 1:
+						insertMS(col_fam_mse, node_id, mss['slave'], node_server2)
+			else:
+				if move_flag == 1:
+					insertMM(col_fam_master,node_id,mss['slave'], node_server2)
 			
 			# Check if the replicas need to be kept in the initial server
 			counter=0
-			server2_expr = create_index_expression('server',node_server1)
-			clause2 = create_index_clause([server2_expr])			
-			for key2, mss2 in col_fam_mse.get_indexed_slices(clause2):
-				if not mss2['master'] == node_id:
+			slave_expr1 = create_index_expression('slave',mss['slave'])
+			server3_expr = create_index_expression('server',node_server1)
+			clause3 = create_index_clause([slave_expr1, server3_expr])
+			for key2, mss2 in col_fam_mse.get_indexed_slices(clause3):
+				if not int(mss2['master']) == node_id:
 					counter+=1
 				else:
 					if move_flag == 1:
 						col_fam_mse.remove(key2)
 			if counter==0:
 				new_replica_count = get_server_rep(col_fam_replica,int(mss['slave']))
-				slave_expr = create_index_expression('node_id', mss['slave'])
-				server2_expr = create_index_expression('server', node_server1)
-				clause2 = create_index_clause([slave_expr, server2_expr])
-				for key2, server in col_fam_replica.get_indexed_slices(clause2):
-					if (len(new_replica_count) > total_replicas):
-						if move_flag == 0:
-							added_replicas-=1
-						else:
-							col_fam_replica.remove(str(key2))
-							new_replica_count -=1
+				if (len(new_replica_count) > total_replicas):
+					if move_flag == 0:
+						added_replicas-=1
+					else:
+						delete_node_replica(col_fam_replica,int(mss['slave']) , node_server1)
 			else:
 				counter=0
-		if move_flag == 1:
-			col_fam_master.remove(str(node_id))
-			col_fam_master.insert(str(node_id),{'server':node_server2})
-			insertMM(col_fam_mme, int(node_id),int(node2.getId()),int(node_server2))
+
+		
 		return added_replicas
 	except:
 		print "Unexpected error in functions.find_slave_replicas:", sys.exc_info()[0]
@@ -285,20 +310,33 @@ def find_slave_replicas(node1, node2, node_id, node_server1, node_server2, col_f
 
 # Function: Configurations 2 and 3
 # Move the master of node1 in the server of master-node2
-def config2_3(node1, node2, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, str_master1, str_master2, total_replicas, move_flag):
+def config2_3(node1, node2, col_fam_mme, col_fam_replica, col_fam_mse, col_fam_master, str_master1, str_master2, total_replicas, move_flag,total_servers):
 	added_replicas=0
 
 	node_id = node1.getId()		#master1
 	node_server1 = node1.getMaster()
 	node_server2 = node2.getMaster()
 
-	added_replicas+=find_master_replicas(node_id, node_server1, node_server2, col_fam_mme, col_fam_replica, str_master1, str_master2, move_flag)
+	added_replicas+=find_master_replicas(node_id, node_server1, node_server2, col_fam_mme, col_fam_mse, col_fam_replica, str_master1, str_master2, move_flag)
 	# The same for master 2
-	added_replicas+=find_master_replicas(node_id, node_server1, node_server2, col_fam_mme, col_fam_replica, str_master2, str_master1, move_flag)
+	added_replicas+=find_master_replicas(node_id, node_server1, node_server2 , col_fam_mme, col_fam_mse, col_fam_replica, str_master2, str_master1, move_flag)
+	added_replicas+=find_slave_replicas(node1, node2, node_id, node_server1, node_server2, col_fam_mme, col_fam_mse, col_fam_master, col_fam_replica, total_replicas, move_flag,total_servers)
 	
-	added_replicas+=find_slave_replicas(node1, node2, node_id, node_server1, node_server2, col_fam_mme, col_fam_mse, col_fam_master, col_fam_replica, total_replicas, move_flag)
-
-	return added_replicas	
-
+	if move_flag == 1:
+		col_fam_master.remove(str(node_id))
+		node_replicas = get_server_rep(col_fam_replica,node_id)
+		if node_server2 in node_replicas:
+			servers = range (total_servers)
+			delete_node_replica(col_fam_replica,node_id,node_server2)
+			new_replicas = set(servers) - set(node_replicas)
+			new = list(new_replicas)
+			if len(new) >0:
+				col_fam_replica.insert(get_a_Uuid(), {'node_id':node_id, 'server':new[0]})
+			col_fam_master.insert(str(node_id),{'server':node_server2})
+		else:
+			col_fam_master.insert(str(node_id),{'server':node_server2})
+			insertMM(col_fam_mme, int(node_id),int(node2.getId()),int(node_server2))
+	
+	return added_replicas
 #-----------EOF----------------------------------------------------------------------------#
 #---------------------------------------------------------------------------------------#
